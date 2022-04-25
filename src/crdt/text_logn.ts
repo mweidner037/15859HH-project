@@ -35,13 +35,13 @@ class Node {
     return left ? this.leftChildren : this.rightChildren;
   }
 
-  // Properties for the balanced red-black true ("b" for "balanced").
+  // Properties for the balanced AVL tree ("b" for "balanced").
   // These are set when inserting the node into the balanced tree,
   // shortly after construction.
   bParent: Node | null = null;
   bLeftChild: Node | null = null;
   bRightChild: Node | null = null;
-  bIsBlack: boolean = false;
+  bF: number = 0; // AVL tree balance factor
   /**
    * Number of present nodes in this node's balanced subtree, including itself.
    */
@@ -189,7 +189,8 @@ export class CTextLogn
           ancestor.bCount++;
         }
 
-        // TODO: rebalance/recolor.
+        // Rebalance AVL tree.
+        this.rebalance(node);
 
         // Event.
         this.emit("Insert", {
@@ -270,6 +271,175 @@ export class CTextLogn
   }
 
   /**
+   * AVL tree rebalance starting at the given newly inserted node.
+   * This also updates balanced factors to account for the new node.
+   */
+  private rebalance(node: Node): void {
+    // Using wikipedia alg: https://en.wikipedia.org/wiki/AVL_tree#Insert
+    let Z = node;
+    let G: Node | null = null;
+    for (let X = Z.bParent; X !== null; X = Z.bParent) {
+      let N: Node;
+      if (Z === X.bRightChild) {
+        if (X.bF > 0) {
+          G = X.bParent;
+          if (Z.bF < 0) N = this.rotate_RightLeft(X, Z);
+          else N = this.rotate_Left(X, Z);
+        } else {
+          if (X.bF < 0) {
+            X.bF = 0;
+            break;
+          }
+          X.bF = 1;
+          Z = X;
+          continue;
+        }
+      } else {
+        if (X.bF < 0) {
+          G = X.bParent;
+          if (Z.bF > 0) N = this.rotate_LeftRight(X, Z);
+          else N = this.rotate_Right(X, Z);
+        } else {
+          if (X.bF > 0) {
+            X.bF = 0;
+            break;
+          }
+          X.bF = -1;
+          Z = X;
+          continue;
+        }
+      }
+
+      N.bParent = G;
+      if (G !== null) {
+        if (X === G.bLeftChild) G.bLeftChild = N;
+        else G.bRightChild = N;
+        // G.bCount has not changed: its children have moved around, but the
+        // values in their subtrees are unchanged.
+      } else this.bRootNode = N;
+      break;
+    }
+  }
+
+  private rotate_Left(X: Node, Z: Node): Node {
+    const t23 = Z.bLeftChild;
+    X.bRightChild = t23;
+    if (t23 !== null) t23.bParent = X;
+    Z.bLeftChild = X;
+    X.bParent = Z;
+    if (Z.bF === 0) {
+      X.bF = 1;
+      Z.bF = -1;
+    } else {
+      X.bF = 0;
+      Z.bF = 0;
+    }
+
+    // Update bCount's of all nodes whose children changed, in bottom-up
+    // order so that they are accurate.
+    this.updateBCount(X);
+    this.updateBCount(Z);
+
+    return Z;
+  }
+
+  private rotate_Right(X: Node, Z: Node): Node {
+    const t23 = Z.bRightChild;
+    X.bLeftChild = t23;
+    if (t23 !== null) t23.bParent = X;
+    Z.bRightChild = X;
+    X.bParent = Z;
+    if (Z.bF === 0) {
+      X.bF = 1;
+      Z.bF = -1;
+    } else {
+      X.bF = 0;
+      Z.bF = 0;
+    }
+
+    this.updateBCount(X);
+    this.updateBCount(Z);
+
+    return Z;
+  }
+
+  private rotate_RightLeft(X: Node, Z: Node): Node {
+    const Y = Z.bLeftChild!;
+    const t3 = Y.bRightChild;
+    Z.bLeftChild = t3;
+    if (t3 !== null) t3.bParent = Z;
+    Y.bRightChild = Z;
+    Z.bParent = Y;
+    const t2 = Y.bLeftChild;
+    X.bRightChild = t2;
+    if (t2 !== null) t2.bParent = X;
+    Y.bLeftChild = X;
+    X.bParent = Y;
+    if (Y.bF === 0) {
+      X.bF = 0;
+      Z.bF = 0;
+    } else {
+      if (Y.bF > 0) {
+        X.bF = -1;
+        Z.bF = 0;
+      } else {
+        X.bF = 0;
+        Z.bF = 1;
+      }
+    }
+    Y.bF = 0;
+
+    this.updateBCount(X);
+    this.updateBCount(Z);
+    this.updateBCount(Y);
+
+    return Y;
+  }
+
+  private rotate_LeftRight(X: Node, Z: Node): Node {
+    const Y = Z.bRightChild!;
+    const t3 = Y.bLeftChild;
+    Z.bRightChild = t3;
+    if (t3 !== null) t3.bParent = Z;
+    Y.bLeftChild = Z;
+    Z.bParent = Y;
+    const t2 = Y.bRightChild;
+    X.bLeftChild = t2;
+    if (t2 !== null) t2.bParent = X;
+    Y.bRightChild = X;
+    X.bParent = Y;
+    if (Y.bF === 0) {
+      X.bF = 0;
+      Z.bF = 0;
+    } else {
+      if (Y.bF > 0) {
+        X.bF = -1;
+        Z.bF = 0;
+      } else {
+        X.bF = 0;
+        Z.bF = 1;
+      }
+    }
+    Y.bF = 0;
+
+    this.updateBCount(X);
+    this.updateBCount(Z);
+    this.updateBCount(Y);
+
+    return Y;
+  }
+
+  /**
+   * Set node.bCount assuming its bChildren's bCounts are accurate.
+   */
+  private updateBCount(node: Node): void {
+    node.bCount =
+      (node.bLeftChild?.bCount ?? 0) +
+      (node.isPresent ? 1 : 0) +
+      (node.bRightChild?.bCount ?? 0);
+  }
+
+  /**
    * Time O(log(n)).
    * @param  index [description]
    * @return       [description]
@@ -322,7 +492,7 @@ export class CTextLogn
 
     // Next, count the contribution of nodes outside node's subtree.
     let curNode = node;
-    let curParent = node.parent;
+    let curParent = node.bParent;
     while (curParent !== null) {
       // If curNode is a right child, count its left sibling and parent.
       if (!curNode.bIsLeftChild) {
@@ -332,7 +502,7 @@ export class CTextLogn
       }
       // Go up a layer.
       curNode = curParent;
-      curParent = curNode.parent;
+      curParent = curNode.bParent;
     }
 
     return [geIndex, node.isPresent];
@@ -495,7 +665,7 @@ export class CTextLogn
       switch (lastWalked) {
         case LastWalked.PARENT:
           // We are just starting to walk the subtree at node.
-          if (node.bLeftChild !== null && node.bLeftChild.bCount !== 0) {
+          if (node.bLeftChild !== null) {
             // Walk it next.
             node = node.bLeftChild;
             // lastWalked = LastWalked.PARENT;
@@ -518,10 +688,10 @@ export class CTextLogn
                 value: node.value,
                 isPresent: node.isPresent,
                 count: node.bCount,
-                isBlack: node.bIsBlack,
+                bF: node.bF,
               })
           );
-          if (node.bRightChild !== null && node.bRightChild.bCount !== 0) {
+          if (node.bRightChild !== null) {
             // Walk it next.
             node = node.bRightChild;
             lastWalked = LastWalked.PARENT;
