@@ -14,7 +14,8 @@ import { CTextLogn } from "./crdt/text_logn";
 
   // Display text changes
   text.on("Any", () => {
-    // text.printTreeWalk();
+    text.printTrueTreeWalk();
+    text.printBalancedTreeWalk();
     textarea.value = text.toString();
     updateSelection();
   });

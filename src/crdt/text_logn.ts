@@ -22,10 +22,6 @@ type NetworkMessage = DeleteMessage | InsertMessage;
 class Node {
   readonly leftChildren: Node[] = [];
   readonly rightChildren: Node[] = [];
-  /**
-   * Number of present nodes in this node's subtree, including itself.
-   */
-  count = 0;
 
   constructor(
     readonly id: string,
@@ -38,14 +34,37 @@ class Node {
   children(left: boolean): Node[] {
     return left ? this.leftChildren : this.rightChildren;
   }
+
+  // Properties for the balanced red-black true ("b" for "balanced").
+  // These are set when inserting the node into the balanced tree,
+  // shortly after construction.
+  bParent: Node | null = null;
+  bLeftChild: Node | null = null;
+  bRightChild: Node | null = null;
+  bIsBlack: boolean = false;
+  /**
+   * Number of present nodes in this node's balanced subtree, including itself.
+   */
+  bCount: number = 0;
+
+  get bIsLeftChild(): boolean {
+    return this.bParent !== null && this.bParent.bLeftChild === this;
+  }
+}
+
+enum LastWalked {
+  PARENT,
+  LEFT_CHILD,
+  RIGHT_CHILD,
 }
 
 export class CTextLogn
   extends collabs.CPrimitive<collabs.CTextEventsRecord>
   implements collabs.PositionedList
 {
-  private readonly rootNode: Node;
   private readonly nodesByID = new Map<string, Node>();
+  private readonly rootNode: Node;
+  private bRootNode: Node;
 
   constructor(initToken: collabs.InitToken) {
     super(initToken);
@@ -53,6 +72,7 @@ export class CTextLogn
     // Create root node.
     this.rootNode = new Node("", null, false, "", false);
     this.nodesByID.set(this.rootNode.id, this.rootNode);
+    this.bRootNode = this.rootNode;
   }
 
   insert(index: number, str: string) {
@@ -77,8 +97,7 @@ export class CTextLogn
       // leftOrigin already has right children; become a left child of the
       // next (possibly deleted) node instead, which is guaranteed to have
       // no left children.
-      const firstRightChild = leftOrigin.rightChildren[0];
-      parent = this.leftmostDescendant(firstRightChild);
+      parent = this.nextNode(leftOrigin);
       isLeftChild = true;
     } else {
       parent = leftOrigin;
@@ -124,20 +143,53 @@ export class CTextLogn
         const siblings = node.isLeftChild
           ? parent.leftChildren
           : parent.rightChildren;
-        let i = 0;
+        let i = 0; // Index-to-be.
         for (; i < siblings.length; i++) {
           if (node.id < siblings[i].id) break;
         }
         siblings.splice(i, 0, node);
 
+        // Find the immediate predecessor or successor of node,
+        // counting deleted nodes.
+        const [predecessor, successor] = this.getNeighbor(node, siblings, i);
+
+        // Insert into balanced tree.
+        if (predecessor !== null) {
+          // Insert immediately after predecessor: as its right child,
+          // or as the leftmost descendant of its existing right child.
+          if (predecessor.bRightChild === null) {
+            predecessor.bRightChild = node;
+            node.bParent = predecessor;
+          } else {
+            let current = predecessor.bRightChild;
+            while (current.bLeftChild !== null) current = current.bLeftChild;
+            current.bLeftChild = node;
+            node.bParent = current;
+          }
+        } else if (successor !== null) {
+          // Insert immediately before successor: as its left child,
+          // or as the rightmost descendant of its existing left child.
+          if (successor.bLeftChild === null) {
+            successor.bLeftChild = node;
+            node.bParent = successor;
+          } else {
+            let current = successor.bLeftChild;
+            while (current.bRightChild !== null) current = current.bRightChild;
+            current.bRightChild = node;
+            node.bParent = current;
+          }
+        }
+
         // Update index metadata.
         for (
           let ancestor: Node | null = node;
           ancestor !== null;
-          ancestor = ancestor.parent
+          ancestor = ancestor.bParent
         ) {
-          ancestor.count++;
+          ancestor.bCount++;
         }
+
+        // TODO: rebalance/recolor.
 
         // Event.
         this.emit("Insert", {
@@ -155,11 +207,11 @@ export class CTextLogn
 
           // Update index metadata.
           for (
-            let ancestor: Node | null = node;
-            ancestor !== null;
-            ancestor = ancestor.parent
+            let bAncestor: Node | null = node;
+            bAncestor !== null;
+            bAncestor = bAncestor.bParent
           ) {
-            ancestor.count--;
+            bAncestor.bCount--;
           }
 
           // Event.
@@ -175,62 +227,106 @@ export class CTextLogn
     }
   }
 
+  /**
+   * Find a neighbor (predecessor or successor) of the newly inserted node
+   * in the ground-truth tree, counting deleted nodes.
+   * @param  node
+   * @param  siblings node's siblings.
+   * @param  i        node's index within siblings.
+   * @return          either predecessor or successor (other is null).
+   */
+  private getNeighbor(
+    node: Node,
+    siblings: Node[],
+    i: number
+  ): [predecessor: Node | null, successor: Node | null] {
+    let predecessor: Node | null = null;
+    let successor: Node | null = null;
+    if (node.isLeftChild) {
+      if (i === siblings.length - 1) successor = node.parent!;
+      else {
+        // Next sibling's leftmost descendant is our successor.
+        // TODO: O(log(n)) time.
+        let current = siblings[i + 1];
+        while (current.leftChildren.length !== 0) {
+          current = current.leftChildren[0];
+        }
+        successor = current;
+      }
+    } else {
+      if (i === 0) predecessor = node.parent!;
+      else {
+        // Previous sibling's rightmost descendant is our predecessor.
+        // TODO: O(log(n)) time.
+        let current = siblings[i - 1];
+        while (current.rightChildren.length !== 0) {
+          current = current.rightChildren[current.rightChildren.length - 1];
+        }
+        predecessor = current;
+      }
+    }
+
+    return [predecessor, successor];
+  }
+
+  /**
+   * Time O(log(n)).
+   * @param  index [description]
+   * @return       [description]
+   */
   private indexToNode(index: number): Node {
     if (index < 0 || index >= this.length) {
       throw new Error(`index out of bounds: ${index}, ${this.length}`);
     }
 
     let remaining = index;
-    let current = this.rootNode;
+    let current = this.bRootNode;
     for (;;) {
-      child_loop: {
-        for (const child of current.leftChildren) {
-          if (remaining < child.count) {
-            // "Recurse".
-            current = child;
-            break child_loop;
-          } else remaining -= child.count;
-        }
-        if (current.isPresent) {
-          if (remaining === 0) return current;
-          else remaining--;
-        }
-        for (const child of current.rightChildren) {
-          if (remaining < child.count) {
-            // "Recurse".
-            current = child;
-            break child_loop;
-          } else remaining -= child.count;
-        }
+      if (current.bLeftChild !== null) {
+        const child = current.bLeftChild;
+        if (remaining < child.bCount) {
+          // "Recurse".
+          current = child;
+          continue;
+        } else remaining -= child.bCount;
+      }
+      if (current.isPresent) {
+        if (remaining === 0) return current;
+        else remaining--;
+      }
+      if (
+        current.bRightChild === null ||
+        current.bRightChild.bCount < remaining
+      ) {
         // Done walking current, but didn't find index.
         throw new Error(
           `Internal error: failed to find valid index: ${index}, ${this.length}`
         );
       }
+      // "Recurse".
+      current = current.bRightChild;
     }
   }
 
+  /**
+   * Time O(log(n)).
+   * @param  node [description]
+   * @return      [description]
+   */
   private nodeToIndex(node: Node): [geIndex: number, isPresent: boolean] {
     // Count the number of present nodes prior to node.
     let geIndex = 0;
 
     // First, count the contribution of node's left descendants.
-    for (const leftChild of node.leftChildren) geIndex += leftChild.count;
+    if (node.bLeftChild !== null) geIndex += node.bLeftChild.bCount;
 
     // Next, count the contribution of nodes outside node's subtree.
     let curNode = node;
     let curParent = node.parent;
     while (curParent !== null) {
-      // Count further-left siblings of curNode.
-      for (const child of curParent.leftChildren) {
-        if (child === curNode) break;
-        geIndex += child.count;
-      }
-      if (!curNode.isLeftChild) {
-        for (const child of curParent.rightChildren) {
-          if (child === curNode) break;
-          geIndex += child.count;
-        }
+      // If curNode is a right child, count its left sibling and parent.
+      if (!curNode.bIsLeftChild) {
+        geIndex += curParent.bLeftChild?.bCount ?? 0;
         // Count parent if present.
         if (curParent.isPresent) geIndex++;
       }
@@ -243,65 +339,84 @@ export class CTextLogn
   }
 
   /**
-   * Returns the leftmost descendant of node.
+   * Returns the next node after node in the balanced tree (possibly deleted).
+   * It is assumed that node is not last.
+   *
+   * Time: O(log(n)).
    */
-  private leftmostDescendant(node: Node): Node {
-    let current = node;
-    while (current.leftChildren.length > 0) {
-      current = current.leftChildren[0];
+  private nextNode(node: Node): Node {
+    if (node.bRightChild !== null) {
+      // Return the leftmost descendent of bRightChild.
+      let current = node.bRightChild;
+      while (current.bLeftChild !== null) current = current.bLeftChild;
+      return current;
+    } else {
+      // Go upwards until we turn right; that rightwards ancestor is next.
+      let current = node;
+      for (;;) {
+        if (current.bIsLeftChild) return current.bParent!;
+        if (current.bParent === null) {
+          throw new Error("node is last");
+        }
+        current = current.bParent;
+      }
     }
-    return current;
   }
 
   get length(): number {
-    return this.rootNode.count;
+    return this.bRootNode.bCount;
   }
 
   toString(): string {
     const values = new Array<string>(this.length);
 
-    // Walk the tree.
-    const stack: [node: Node, left: boolean, childIndex: number][] = [];
-    let node = this.rootNode;
-    let left = true;
-    let childIndex = 0;
-    for (;;) {
-      if (childIndex === node.children(left).length) {
-        if (left) {
-          // Visit node.
-          if (node.isPresent) values.push(node.value);
-          // Move to right children.
-          left = false;
-          childIndex = 0;
-          continue;
-        } else {
-          // Done with node; pop the stack.
-          if (stack.length === 0) {
-            // Completely done.
-            const ans = values.join("");
-            if (ans.length !== this.length) {
-              throw new Error("Internal error: toString() has wrong length");
-            }
-            return ans;
+    // Walk the balanced tree.
+    let node: Node | null = this.bRootNode;
+    let lastWalked: LastWalked = LastWalked.PARENT;
+    while (node !== null) {
+      switch (lastWalked) {
+        case LastWalked.PARENT:
+          // We are just starting to walk the subtree at node.
+          if (node.bLeftChild !== null && node.bLeftChild.bCount !== 0) {
+            // Walk it next.
+            node = node.bLeftChild;
+            // lastWalked = LastWalked.PARENT;
+          } else {
+            // Skip over the left subtree.
+            // node = node;
+            lastWalked = LastWalked.LEFT_CHILD;
           }
-          [node, left, childIndex] = stack.pop()!;
-          childIndex++;
-          continue;
-        }
-      }
-
-      const child = node.children(left)[childIndex];
-      // Recurse if nonempty, else move to the next child.
-      if (child.count > 0) {
-        stack.push([node, left, childIndex]);
-        node = child;
-        left = true;
-        childIndex = 0;
-        continue;
-      } else {
-        childIndex++;
+          break;
+        case LastWalked.LEFT_CHILD:
+          // We just finished walking the left child. Now visit this node
+          // followed by its right subtree.
+          if (node.isPresent) values.push(node.value);
+          if (node.bRightChild !== null && node.bRightChild.bCount !== 0) {
+            // Walk it next.
+            node = node.bRightChild;
+            lastWalked = LastWalked.PARENT;
+          } else {
+            // Skip over the right subtree.
+            // node = node;
+            lastWalked = LastWalked.RIGHT_CHILD;
+          }
+          break;
+        case LastWalked.RIGHT_CHILD:
+          // We just finished walking the right child, hence node's whole sbutree.
+          // Go back up.
+          lastWalked = node.bIsLeftChild
+            ? LastWalked.LEFT_CHILD
+            : LastWalked.RIGHT_CHILD;
+          node = node.bParent;
+          break;
       }
     }
+
+    const ans = values.join("");
+    if (ans.length !== this.length) {
+      throw new Error("Internal error: toString() has wrong length");
+    }
+    return ans;
   }
 
   getPosition(index: number): string {
@@ -325,8 +440,9 @@ export class CTextLogn
     return false;
   }
 
-  printTreeWalk(): void {
-    // Walk the tree.
+  printTrueTreeWalk(): void {
+    console.log("printTrueTreeWalk:");
+    // Walk the ground truth tree.
     const stack: [node: Node, left: boolean, childIndex: number][] = [];
     let node = this.rootNode;
     let left = true;
@@ -342,7 +458,6 @@ export class CTextLogn
                 id: node.id,
                 value: node.value,
                 isPresent: node.isPresent,
-                count: node.count,
               })
           );
           // Move to right children.
@@ -367,6 +482,67 @@ export class CTextLogn
       node = child;
       left = true;
       childIndex = 0;
+    }
+  }
+
+  printBalancedTreeWalk(): void {
+    console.log("printBalancedTreeWalk:");
+    // Walk the balanced tree.
+    let node: Node | null = this.bRootNode;
+    let lastWalked: LastWalked = LastWalked.PARENT;
+    let depth = 0;
+    while (node !== null) {
+      switch (lastWalked) {
+        case LastWalked.PARENT:
+          // We are just starting to walk the subtree at node.
+          if (node.bLeftChild !== null && node.bLeftChild.bCount !== 0) {
+            // Walk it next.
+            node = node.bLeftChild;
+            // lastWalked = LastWalked.PARENT;
+            depth++;
+          } else {
+            // Skip over the left subtree.
+            // node = node;
+            lastWalked = LastWalked.LEFT_CHILD;
+            // depth = depth;
+          }
+          break;
+        case LastWalked.LEFT_CHILD:
+          // We just finished walking the left child. Now visit this node
+          // followed by its right subtree.
+          const tabs = new Array<string>(depth).fill("  ").join("");
+          console.log(
+            tabs +
+              JSON.stringify({
+                id: node.id,
+                value: node.value,
+                isPresent: node.isPresent,
+                count: node.bCount,
+                isBlack: node.bIsBlack,
+              })
+          );
+          if (node.bRightChild !== null && node.bRightChild.bCount !== 0) {
+            // Walk it next.
+            node = node.bRightChild;
+            lastWalked = LastWalked.PARENT;
+            depth++;
+          } else {
+            // Skip over the right subtree.
+            // node = node;
+            lastWalked = LastWalked.RIGHT_CHILD;
+            // depth = depth;
+          }
+          break;
+        case LastWalked.RIGHT_CHILD:
+          // We just finished walking the right child, hence node's whole sbutree.
+          // Go back up.
+          lastWalked = node.bIsLeftChild
+            ? LastWalked.LEFT_CHILD
+            : LastWalked.RIGHT_CHILD;
+          node = node.bParent;
+          depth--;
+          break;
+      }
     }
   }
 }
