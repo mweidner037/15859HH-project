@@ -1,8 +1,10 @@
-# Plain Text Editor Demo
+# 15-858HH Final Project: O(log(n)) Time Text CRDT
 
-A collaborative plain text editor, as a [Collabs container](https://github.com/composablesys/collabs/blob/master/collabs/docs/containers.md).
+`src/crdt/text_logn.ts` containts the text CRDT implementation. It has an API similar to Collabs's built-in `CText`, but a different implementation. It performs all operations in O(log(n) + c) time, where n is the text length including deleted elements, and c <= numUsers is the maximum amount of concurrency (concurrent edits at the same position).
 
-Based off of [template-container](https://github.com/composablesys/collabs/tree/master/template-container).
+As a demo, `npm start` runs the collaborative plain text editor from Collas's demos, but using this text CRDT instead of `CText.`
+
+Except for the text CRDT, this repo is the mostly copied from Collabs's [plaintext editor demo](https://github.com/composablesys/collabs/tree/master/demos/apps/plaintext).
 
 ## Installation
 
@@ -20,14 +22,10 @@ Build the container from `src/`, in [production mode](https://webpack.js.org/gui
 
 ### `npm start`
 
-Run the testing server. Open [http://localhost:3000/](http://localhost:3000/) to view. Use multiple browser windows at once to test collaboration.
+Run the demo server. Open [http://localhost:3000/](http://localhost:3000/) to view. Use multiple browser windows at once to test collaboration.
 
 See [@collabs/container-testing-server](https://www.npmjs.com/package/@collabs/container-testing-server) for usage info.
 
 ### `npm run clean`
 
 Delete `dist/`.
-
-## Deployment
-
-`dist/plaintext.html` is the compiled container. It can used in any container host.
