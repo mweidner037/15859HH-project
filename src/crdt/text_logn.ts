@@ -51,9 +51,13 @@ class Node {
   get bIsLeftChild(): boolean {
     return this.bParent !== null && this.bParent.bLeftChild === this;
   }
+
+  toString() {
+    return this.id;
+  }
 }
 
-enum LastWalked {
+export enum LastWalked {
   PARENT,
   LEFT_CHILD,
   RIGHT_CHILD,
@@ -625,6 +629,8 @@ export class CTextLogn
     return false;
   }
 
+  // Debugging
+
   printTrueTreeWalk(): void {
     console.log("printTrueTreeWalk:");
     // Walk the ground truth tree.
@@ -643,6 +649,8 @@ export class CTextLogn
                 id: node.id,
                 value: node.value,
                 isPresent: node.isPresent,
+                leftSAL: this.leftSALM.getTreeID(node),
+                rightSAL: this.rightSALM.getTreeID(node),
               })
           );
           // Move to right children.
@@ -729,5 +737,88 @@ export class CTextLogn
           break;
       }
     }
+  }
+
+  /**
+   * Check that all SALM getEnd calls give the right answer, otherwise
+   * throwing an error.
+   *
+   * Note: expensive operation.
+   */
+  checkSALMs(): void {
+    console.log("checkSALMs");
+    // Walk the ground truth tree.
+    const stack: [node: Node, left: boolean, childIndex: number][] = [];
+    let node = this.rootNode;
+    let left = true;
+    let childIndex = 0;
+    for (;;) {
+      if (childIndex === node.children(left).length) {
+        if (left) {
+          // Visit node.
+          {
+            const salmLeftDescendant = this.leftSALM.getEnd(node);
+            const trueLeftDescendent = this.getLeftmostDescendant(node);
+            if (salmLeftDescendant !== trueLeftDescendent) {
+              throw new Error(
+                "Wrong SALM leftmost descendant for " +
+                  node.id +
+                  ": " +
+                  salmLeftDescendant.id +
+                  ", " +
+                  trueLeftDescendent.id
+              );
+            }
+          }
+          {
+            const salmRightDescendant = this.rightSALM.getEnd(node);
+            const trueRightDescendent = this.getRightmostDescendant(node);
+            if (salmRightDescendant !== trueRightDescendent) {
+              throw new Error(
+                "Wrong SALM rightmost descendant for " +
+                  node.id +
+                  ": " +
+                  salmRightDescendant.id +
+                  ", " +
+                  trueRightDescendent.id
+              );
+            }
+          }
+          // Move to right children.
+          left = false;
+          childIndex = 0;
+          continue;
+        } else {
+          // Done with node; pop the stack.
+          if (stack.length === 0) {
+            // Completely done.
+            return;
+          }
+          [node, left, childIndex] = stack.pop()!;
+          childIndex++;
+          continue;
+        }
+      }
+
+      const child = node.children(left)[childIndex];
+      // Recurse.
+      stack.push([node, left, childIndex]);
+      node = child;
+      left = true;
+      childIndex = 0;
+    }
+  }
+
+  private getLeftmostDescendant(node: Node): Node {
+    let current = node;
+    while (current.leftChildren.length !== 0) current = current.leftChildren[0];
+    return current;
+  }
+
+  private getRightmostDescendant(node: Node): Node {
+    let current = node;
+    while (current.rightChildren.length !== 0)
+      current = current.rightChildren[current.rightChildren.length - 1];
+    return current;
   }
 }

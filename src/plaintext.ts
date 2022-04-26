@@ -16,6 +16,7 @@ import { CTextLogn } from "./crdt/text_logn";
   text.on("Any", () => {
     text.printTrueTreeWalk();
     // text.printBalancedTreeWalk();
+    text.checkSALMs();
     textarea.value = text.toString();
     updateSelection();
   });
