@@ -1,4 +1,5 @@
 import * as collabs from "@collabs/collabs";
+import { SplitAppendListManager } from "./split_append_list";
 
 // Reimplementation of CText that use the O(log(n) + c) time
 // insertion algorithm. For simplicity, it leaves out practical opts
@@ -65,6 +66,10 @@ export class CTextLogn
   private readonly nodesByID = new Map<string, Node>();
   private readonly rootNode: Node;
   private bRootNode: Node;
+  /** Points from each node to its leftmost descendant. */
+  private leftSALM = new SplitAppendListManager<Node>();
+  /** Points from each node to its rightmost descendant. */
+  private rightSALM = new SplitAppendListManager<Node>();
 
   constructor(initToken: collabs.InitToken) {
     super(initToken);
@@ -73,6 +78,8 @@ export class CTextLogn
     this.rootNode = new Node("", null, false, "", false);
     this.nodesByID.set(this.rootNode.id, this.rootNode);
     this.bRootNode = this.rootNode;
+    this.leftSALM.create(this.rootNode);
+    this.rightSALM.create(this.rootNode);
   }
 
   insert(index: number, str: string) {
@@ -150,7 +157,7 @@ export class CTextLogn
         siblings.splice(i, 0, node);
 
         // Find the immediate predecessor or successor of node,
-        // counting deleted nodes.
+        // counting deleted nodes. Also update SALMs.
         const [predecessor, successor] = this.getNeighbor(node, siblings, i);
 
         // Insert into balanced tree.
@@ -191,6 +198,23 @@ export class CTextLogn
 
         // Rebalance AVL tree.
         this.rebalance(node);
+
+        // Update SALMS.
+        if (node.isLeftChild) {
+          if (i === 0) {
+            // node captures the parent's leftmost descendant.
+            if (siblings.length >= 2) this.leftSALM.split(parent);
+            this.leftSALM.append(parent, node);
+          } else this.leftSALM.create(node); // No one's leftmost descendant.
+          this.rightSALM.create(node); // No one's rightmost descendant.
+        } else {
+          if (i === siblings.length - 1) {
+            // node captures the parent's rightmost descendant.
+            if (siblings.length >= 2) this.rightSALM.split(parent);
+            this.rightSALM.append(parent, node);
+          } else this.rightSALM.create(node); // No one's rightmost descendant.
+          this.leftSALM.create(node); // No one's leftmost descendant.
+        }
 
         // Event.
         this.emit("Insert", {
@@ -244,26 +268,17 @@ export class CTextLogn
     let predecessor: Node | null = null;
     let successor: Node | null = null;
     if (node.isLeftChild) {
-      if (i === siblings.length - 1) successor = node.parent!;
-      else {
+      if (i === siblings.length - 1) {
+        successor = node.parent!;
+      } else {
         // Next sibling's leftmost descendant is our successor.
-        // TODO: O(log(n)) time.
-        let current = siblings[i + 1];
-        while (current.leftChildren.length !== 0) {
-          current = current.leftChildren[0];
-        }
-        successor = current;
+        successor = this.leftSALM.getEnd(siblings[i + 1]);
       }
     } else {
       if (i === 0) predecessor = node.parent!;
       else {
         // Previous sibling's rightmost descendant is our predecessor.
-        // TODO: O(log(n)) time.
-        let current = siblings[i - 1];
-        while (current.rightChildren.length !== 0) {
-          current = current.rightChildren[current.rightChildren.length - 1];
-        }
-        predecessor = current;
+        predecessor = this.rightSALM.getEnd(siblings[i - 1]);
       }
     }
 
