@@ -28,13 +28,17 @@
   },
   "scripts": {
     "start": "container-testing-server dist/plaintext.html",
-    "dev": "cross-env TS_NODE_PROJECT='tsconfig-for-webpack-config.json' webpack",
-    "build": "cross-env TS_NODE_PROJECT='tsconfig-for-webpack-config.json' webpack --mode production --no-devtool",
+    "benchmarks": "node build/benchmarks/main.js",
+    "dev": "npm run dev:site && npm run build:benchmarks",
+    "dev:site": "cross-env TS_NODE_PROJECT='tsconfig-for-webpack-config.json' webpack",
+    "build": "npm run build:site && npm run build:benchmarks",
+    "build:site": "cross-env TS_NODE_PROJECT='tsconfig-for-webpack-config.json' webpack --mode production --no-devtool",
+    "build:benchmarks": "tsc -p tsconfig.benchmarks.json",
     "test": "npm-run-all test:*",
     "test:pkg": "pkg-ok",
     "test:format": "prettier --check .",
     "fix": "npm-run-all fix:*",
     "fix:format": "prettier --write .",
-    "clean": "rimraf dist"
+    "clean": "rimraf dist build"
   }
 }

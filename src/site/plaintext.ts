@@ -1,6 +1,6 @@
 import * as collabs from "@collabs/collabs";
 import { CRDTContainer } from "@collabs/container";
-import { CTextLogn } from "./crdt/text_logn";
+import { CTextLogn } from "../crdt/text_logn";
 
 (async function () {
   const container = new CRDTContainer();

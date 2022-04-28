@@ -13,7 +13,7 @@ const config: webpack.Configuration = {
     innerGraph: true,
     sideEffects: true,
   },
-  entry: "./src/plaintext.ts",
+  entry: "./src/site/plaintext.ts",
   output: {
     filename: "[name].js",
     path: path.resolve(__dirname, "dist"),
@@ -44,7 +44,7 @@ const config: webpack.Configuration = {
       filename: "plaintext.html",
       // Use plaintext.html as the HTML file,
       // instead of the plugin's default file.
-      template: "./src/plaintext.html",
+      template: "./src/site/plaintext.html",
       // Inject the compiled .js into <body> instead of
       // <head>.  This lets use access HTML elements immediately
       // in plaintext.ts file, instead of awaiting window.onload.
@@ -62,15 +62,6 @@ const config: webpack.Configuration = {
       cleanAfterEveryBuildPatterns: ["**/*.js"],
       cleanStaleWebpackAssets: false,
       protectWebpackAssets: false,
-    }),
-    new CopyWebpackPlugin({
-      patterns: [
-        // Copy info.json.
-        {
-          from: "./src/info.json",
-          to: "./[base]",
-        },
-      ],
     }),
   ],
 };
