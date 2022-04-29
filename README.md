@@ -1,4 +1,4 @@
-# 15-858HH Final Project: Log-Time Text CRDT
+# 15-859HH Final Project: Log-Time Text CRDT
 
 See the [project presentation](https://docs.google.com/presentation/d/1pGbpRntDWFqZ6AMQRu0RLXYvB3K9nqMFepPPJ6IDcC0/edit?usp=sharing) for background.
 
@@ -48,7 +48,7 @@ The algorithm uses the simple binary-ish tree CRDT described in [these slides](h
 
 1. A "ground-truth" tree: the literal tree described in those slides, with one character per node.
 2. A balanced (AVL) tree representing the ordered list of nodes, including deleted nodes. This is used to convert between nodes and indices in O(log(n)) time. Note that this tree is local, not replicated: different devices may balance the tree in different ways.
-3. A means of mapping from each node to its leftmost (respectively, rightmost) descendants in O(log(n)) time. Specifically, this means is a collection of AVL trees, one per contiguous leftmost path. To find a node's leftmost descendant, you go up its AVL tree to the root, then down the AVL tree's right side to its last element. When a node is inserted, if it is a leftmost child, it is appended to its parent's AVL tree; if it breaks an existing leftmost path, that path's AVL tree is split.
+3. A means of mapping from each node to its leftmost (respectively, rightmost) descendants in O(log(n)) time. Specifically, this means is a collection of AVL trees, one per contiguous leftmost path. To find a node's leftmost descendant, you go up its AVL tree to the root, then down the AVL tree's right side to its last element. When a node is inserted, if it is a leftmost child, it is appended to its parent's AVL tree; if it breaks an existing leftmost path, that path's AVL tree is split. The code calls this set of trees a "Split-Append List Manager (SALM)". Note that these trees are again local, not replicated.
 
 ## Future work
 
